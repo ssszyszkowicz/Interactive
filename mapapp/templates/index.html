@@ -104,7 +104,6 @@
         });
 
         // Markers
-        var markerIDsupply = 0;
         var markers = {};
         const pointCount = document.getElementById("pointCount");
         function markerCoords(marker) {
@@ -113,9 +112,11 @@
         }
         map.on('dblclick', function (e) {
             var m = L.marker(e.latlng, {draggable: 'true'}).addTo(map);
-            markers[markerIDsupply] = m;
+            const keys = Object.keys(markers);
+            if(keys.length==0) key = 0;
+            else key = Math.max(keys) + 1;
+            markers[key] = m;
             m.on('dragend', updatePolygons);
-            markerIDsupply++;
             pointCount.textContent = Object.keys(markers).length;
             updatePolygons();
         });
@@ -140,7 +141,9 @@
         function loadMarkers(str) {
             const staticPoints = stringToMarkers(str);
             for (var point of staticPoints) {
-                markers[point.id] = L.marker([point.lat, point.lon], {draggable: 'true'}).addTo(map);
+                var m = L.marker([point.lat, point.lon], {draggable: 'true'}).addTo(map);
+                markers[point.id] = m;
+                m.on('dragend', updatePolygons);
             }
           }
         function clearAllMarkers() {
@@ -201,6 +204,7 @@
                 alert("Please enter a profile name.");
                 return;
             }
+            const sm = serializeMarkers();
             fetch("/accounts/save_profile/", {
                 method: 'POST',
                 headers: {
@@ -209,7 +213,7 @@
                 },
                 body: JSON.stringify({
                     name: profileName,
-                    markers: serializeMarkers(), 
+                    markers: sm
                 })
             })
                 .then(response => response.json())
