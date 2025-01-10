@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Intercative Map: Morphological Closing</title>
+    {% load static %}
+    <link rel="icon" href="{% static 'mapapp/favicon.ico' %}" type="image/x-icon">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="shortcut icon" type="image/x-icon" href="docs/images/favicon.ico" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/semantic-ui/2.4.1/semantic.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/semantic-ui/2.4.1/semantic.min.js"></script>
+    <style>
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+        }
+
+        .leaflet-container {
+            height: 500px;
+            width: 500px;
+            max-width: 100%;
+            max-height: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Interactive <a href="https://en.wikipedia.org/wiki/Closing_(morphology)">morphological closing</a> app.</h1>
+    <div style="width:700px;">
+        <div style="width:200px; float:left; margin-left:15px;" class="ui container">
+            <form class="ui form">
+                <a href="{% url 'account_logout' %}">Logout</a><br>
+                Logged user: <span id="User Display" style="color:#023020">{{ request.user }}</span><br><br>
+                Radius = <span id="radiusDisplay">500</span><br>
+                <input type="range" id="radiusRange" min="10" max="1000" value="500" /><br>
+                Point count = <span id="pointCount">0</span><br>
+                <input type="button" id="clearButton" value="Clear all" class="ui button"/><br><br>
+                <input type="text" id="newProfileName">
+                <input type="button" id="newProfileSave" value="Save Profile" class="ui button"/><br><br>
+                <select id="loadProfileName" size=0 /><br>
+                <input type="button" id="loadProfile" value="Load Profile" class="ui button"/><br><br>
+                Double-click on the map to create markers.<br>
+                You can drag the created markers to new locations.<br>
+                Change the closing radius using the slider.<br>
+                The closing polygon(s) will change after each operation.
+            </form>
+        </div>
+        <div id="map" style="width: 500px; height: 500px; float:right;"></div>
+    </div>
+    <div style="clear: both;"></div>
+
+    <script>
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i=0; i<cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length+1) === (name+'=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length+1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+        const csrftoken = getCookie('csrftoken');
+
+        // Tile map 
+        const centre = [48.43, -123.36];
+        const map = L.map("map",
+            {
+                center: centre,
+                maxBounds: [[centre[0] - 1, centre[1] - 1], [centre[0] + 1, centre[1] + 1]],
+                zoom: 13,
+                doubleClickZoom: false
+            });
+        const osm = L.tileLayer(
+            "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
+            { "attribution": "", "detectRetina": false, "maxNativeZoom": 20, "maxZoom": 20, "minZoom": 10, "noWrap": false, "opacity": 1, "subdomains": "abcd", "tms": false }
+        ).addTo(map);
+
+        // Controls
+        radiusRange.addEventListener("input", updatePolygons);
+        const clearButton = document.getElementById("clearButton");
+        clearButton.addEventListener("click", function () {
+            for (let k in markers) {
+                map.removeLayer(markers[k]);
+            }
+            markers = {};
+            pointCount.textContent = 0;
+            for (p of polygons) {
+                map.removeLayer(p);
+            }
+            polygons = [];
+        });
+
+        // Markers
+        var markerIDsupply = 0;
+        var markers = {};
+        const pointCount = document.getElementById("pointCount");
+        function markerCoords(marker) {
+            var ll = marker.getLatLng();
+            return ll.lng.toFixed(6) + "," + ll.lat.toFixed(6);
+        }
+        map.on('dblclick', function (e) {
+            var m = L.marker(e.latlng, {draggable: 'true'}).addTo(map);
+            markers[markerIDsupply] = m;
+            m.on('dragend', updatePolygons);
+            markerIDsupply++;
+            pointCount.textContent = Object.keys(markers).length;
+            updatePolygons();
+        });
+        function serializeMarkers() {
+            var mm = [];
+            for (var key in markers) {
+                mm.push(key + ',' + markerCoords(markers[key]));
+            }
+            return mm.join(",");
+        }
+        function stringToMarkers(str) {
+            const points = str.split(',');
+            const result = [];
+            for (let i=0; i<points.length; i+=3) {
+              const id = parseInt(points[i]);
+              const lon = parseFloat(points[i+1]);
+              const lat = parseFloat(points[i+2]);
+              result.push({id, lon, lat});
+            }
+            return result;
+          } 
+        function loadMarkers(str) {
+            const staticPoints = stringToMarkers(str);
+            for (var point of staticPoints) {
+                markers[point.id] = L.marker([point.lat, point.lon], {draggable: 'true'}).addTo(map);
+            }
+          }
+        function clearAllMarkers() {
+            for (let key in markers) {
+                map.removeLayer(markers[key]);
+            }
+            markers = {};
+            pointCount.textContent = 0;
+        }
+
+        // Polygon code
+        var polygons = [];
+        const radiusDisplay = document.getElementById("radiusDisplay");
+        function updatePolygons() {
+            var mm = [];
+            for (var key in markers) {
+                mm.push(markerCoords(markers[key]));
+            }
+            var t = "[" + mm.join(",") + "]";
+            // This needs to be inside the function, otherwise it cannot load the object:
+            const radiusRange = document.getElementById("radiusRange");
+            fetch("/change_geo/?radius=" + radiusRange.value.toString() + "&markers=" + t, {
+                method: 'GET',
+                headers: {
+                    'X-CSRFToken': csrftoken,
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json'
+                }
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        // Update point count if returned in response
+                        if (data.radius !== undefined) {
+                            radiusDisplay.textContent = data.radius;
+                        }
+                        if (data.contours !== undefined) {
+                            //markersDebug.textContent = data.contours;
+                            for (p of polygons) {
+                                map.removeLayer(p);
+                            }
+                            polygons = [];
+                            for (const c of JSON.parse(data.contours)) {
+                                polygons.push(L.polygon(c).addTo(map));
+                            }
+                        }
+
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        // Profile interaction
+        const saveProfileButton = document.getElementById("newProfileSave");
+        saveProfileButton.addEventListener("click", function () {
+            const profileName = document.getElementById("newProfileName").value;
+            if (profileName.trim() === "") {
+                alert("Please enter a profile name.");
+                return;
+            }
+            fetch("/accounts/save_profile/", {
+                method: 'POST',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    name: profileName,
+                    markers: serializeMarkers(), 
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        alert("Profile saved successfully!");
+                        fetchAndPopulateProfiles();
+                    } else {
+                        alert("Error saving profile.");
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+        });
+        function fetchAndPopulateProfiles() {
+            fetch("/accounts/load_profiles/", {
+                method: 'GET',
+                headers: {
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'Accept': 'application/json',
+                },
+            })
+                .then(response => response.json())
+                .then(data => {
+                    const loadProfileName = document.getElementById("loadProfileName");
+                    loadProfileName.innerHTML = "";
+                    data.profiles.forEach(profile => {
+                        const option = document.createElement("option");
+                        option.value = profile.id;
+                        option.textContent = profile.name;
+                        loadProfileName.appendChild(option);
+                    });
+                })
+                .catch(error => console.error('Error fetching profiles:', error));
+        };
+        document.getElementById("loadProfile").addEventListener("click", function () {
+            const selectedProfileId = document.getElementById("loadProfileName").value;
+            if (selectedProfileId) {
+                fetch(`/accounts/load_profile/${selectedProfileId}/`, {
+                    method: 'GET',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Accept': 'application/json',
+                    },
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.profile) {
+                            clearAllMarkers();
+                            loadMarkers(data.profile.markers);
+                            updatePolygons();
+                        } else {
+                            alert("Error loading profile.");
+                        }
+                    })
+                    .catch(error => console.error('Error loading profile:', error));
+            }
+        });
+        document.addEventListener("DOMContentLoaded", fetchAndPopulateProfiles);
+    </script>
+</body>
+</html>
