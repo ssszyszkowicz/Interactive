@@ -25,35 +25,66 @@
 
         .leaflet-container {
             height: 500px;
-            width: 500px;
+            width: 486px;
             max-width: 100%;
             max-height: 100%;
+        }
+
+        .ui.container {
+            padding-bottom:20px;
         }
     </style>
 </head>
 
 <body>
-    <h1>Interactive <a href="https://en.wikipedia.org/wiki/Closing_(morphology)">morphological closing</a> app.</h1>
-    <div style="width:700px;">
-        <div style="width:200px; float:left; margin-left:15px;" class="ui container">
-            <form class="ui form">
-                <a href="{% url 'account_logout' %}">Logout</a><br>
-                Logged user: <span id="User Display" style="color:#023020">{{ request.user }}</span><br><br>
-                Radius = <span id="radiusDisplay">500</span><br>
-                <input type="range" id="radiusRange" min="10" max="1000" value="500" /><br>
-                Point count = <span id="pointCount">0</span><br>
-                <input type="button" id="clearButton" value="Clear all" class="ui button"/><br><br>
-                <input type="text" id="newProfileName">
-                <input type="button" id="newProfileSave" value="Save Profile" class="ui button"/><br><br>
-                <select id="loadProfileName" size=0 /><br>
-                <input type="button" id="loadProfile" value="Load Profile" class="ui button"/><br><br>
-                Double-click on the map to create markers.<br>
-                You can drag the created markers to new locations.<br>
-                Change the closing radius using the slider.<br>
-                The closing polygon(s) will change after each operation.
-            </form>
+    <div class="ui container" style="width: 1000px;">
+        <h1 class="ui header">Interactive <a href="https://en.wikipedia.org/wiki/Closing_(morphology)">morphological closing</a> app.</h1>
+        <div class="ui stackable grid">
+            <div class="six wide column">
+                <div class="ui segment" style="height: 100px;">
+                    <form class="ui form">
+                        <a href="{% url 'account_logout' %}">Logout</a><br>
+                        Logged user: <span id="User Display" style="color:#023020">{{ request.user }}</span><br><br>
+                    </form>
+                </div>
+            </div>
+            <div class="six wide column">
+                <div class="ui segment" style="height: 100px;">
+                    <form class="ui form">
+                        <input type="text" id="locationSearchText" size="20" placeholder="Warszawa, Polska">
+                        <input type="button" id="locationSearchButton" value="Search Location" class="ui button"/>
+                        <span id="flyingLocation"></span>
+                    </form>
+                </div>
+            </div>
         </div>
-        <div id="map" style="width: 500px; height: 500px; float:right;"></div>
+    </div>   
+    <div class="ui container" style="width: 1000px;">
+        <div class="ui stackable grid">
+            <div class="four wide column">
+                <div class="ui segment" style="height: 500px;">
+                    <form class="ui form">
+                        Radius = <span id="radiusDisplay">1000</span><br>
+                        <input type="range" id="radiusRange" min="10" max="2000" value="1000" /><br>
+                        Point count = <span id="pointCount">0</span><br>
+                        <input type="button" id="clearButton" value="Clear all" class="ui button"/><br><br>
+                        <input type="text" id="newProfileName">
+                        <input type="button" id="newProfileSave" value="Save Profile" class="ui button"/><br><br>
+                        <select id="loadProfileName" size=0 /><br>
+                        <input type="button" id="loadProfile" value="Load Profile" class="ui button"/><br><br>
+                        Double-click on the map to create markers.<br>
+                        You can drag the created markers to new locations.<br>
+                        Change the closing radius using the slider.<br>
+                        The closing polygon(s) will change after each operation.
+                    </form>
+                </div>
+            </div>
+            <div class="eight wide column">
+                <div class="ui segment" style="width: 486px; height: 500px;">
+                    <div id="map" style="width: 486px; height: 500px; float:right;"></div>
+                </div>
+            </div>
+        </div>
     </div>
     <div style="clear: both;"></div>
 
@@ -79,16 +110,51 @@
         const map = L.map("map",
             {
                 center: centre,
-                maxBounds: [[centre[0] - 1, centre[1] - 1], [centre[0] + 1, centre[1] + 1]],
                 zoom: 13,
                 doubleClickZoom: false
             });
         const osm = L.tileLayer(
             "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-            { "attribution": "", "detectRetina": false, "maxNativeZoom": 20, "maxZoom": 20, "minZoom": 10, "noWrap": false, "opacity": 1, "subdomains": "abcd", "tms": false }
+            { "attribution": "", "detectRetina": false, "maxNativeZoom": 20, "maxZoom": 20, "noWrap": false, "opacity": 1, "subdomains": "abcd", "tms": false }
         ).addTo(map);
 
         // Controls
+        map.on('moveend', function () {
+            if(flying) {
+                flying = false;
+                flyingLocation.textContent = "";
+            }        
+        });
+        const locationSearchText = document.getElementById("locationSearchText");
+        locationSearchText.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') { 
+                event.preventDefault();
+                flyToLocation();
+            }
+        });
+        const locationSearchButton = document.getElementById("locationSearchButton");
+        const flyingLocation = document.getElementById("flyingLocation");
+        var flying = false;
+        locationSearchButton.addEventListener("click", flyToLocation); 
+        function flyToLocation() {
+            const location = locationSearchText.value;
+            const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(location)}`;
+            fetch(url)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                return response.json();
+            })
+            .then(data => {
+                if (data && data.length > 0) {
+                    map.flyTo([data[0].lat,data[0].lon], 13);
+                    flying = true;
+                    flyingLocation.textContent = "Going to "+location+"...";
+                } else alert("Location "+location+" not found in the world.")
+            });
+        };
+        const radiusRange = document.getElementById("radiusRange");
         radiusRange.addEventListener("input", updatePolygons);
         const clearButton = document.getElementById("clearButton");
         clearButton.addEventListener("click", function () {
@@ -114,7 +180,7 @@
             var m = L.marker(e.latlng, {draggable: 'true'}).addTo(map);
             const keys = Object.keys(markers);
             if(keys.length==0) key = 0;
-            else key = Math.max(keys) + 1;
+            else key = Math.max(...keys.map(Number)) + 1;
             markers[key] = m;
             m.on('dragend', updatePolygons);
             pointCount.textContent = Object.keys(markers).length;
@@ -197,9 +263,15 @@
         }
 
         // Profile interaction
+        const newProfileName = document.getElementById("newProfileName");
+        newProfileName.addEventListener('keydown', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+            }
+        });
         const saveProfileButton = document.getElementById("newProfileSave");
         saveProfileButton.addEventListener("click", function () {
-            const profileName = document.getElementById("newProfileName").value;
+            const profileName = newProfileName.value;
             if (profileName.trim() === "") {
                 alert("Please enter a profile name.");
                 return;
