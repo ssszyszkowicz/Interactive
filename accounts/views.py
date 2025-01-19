@@ -1,12 +1,18 @@
 from django.contrib.auth.decorators import login_required
-from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.csrf import csrf_protect
 from django.db.models import F
 from django.http import JsonResponse
 import json
 from .models import UserProfile
 
-# @login_required
-@csrf_exempt
+def delete_profile(request, profile_id):
+    if request.method == 'DELETE':
+        try:
+            UserProfile.objects.get(id=profile_id, user=request.user).delete()
+            return JsonResponse({'status': 'success'})
+        except: pass
+    return JsonResponse({'status': 'error'}, status=400)
+
 def save_profile(request):
     if request.method == 'POST':
         data = json.loads(request.body)

@@ -25,7 +25,7 @@
 
         .leaflet-container {
             height: 500px;
-            width: 486px;
+            width: 500px;
             max-width: 100%;
             max-height: 100%;
         }
@@ -40,7 +40,7 @@
     <div class="ui container" style="width: 1000px;">
         <h1 class="ui header">Interactive <a href="https://en.wikipedia.org/wiki/Closing_(morphology)">morphological closing</a> app.</h1>
         <div class="ui stackable grid">
-            <div class="six wide column">
+            <div class="eight wide column">
                 <div class="ui segment" style="height: 100px;">
                     <form class="ui form">
                         <a href="{% url 'account_logout' %}">Logout</a><br>
@@ -48,7 +48,7 @@
                     </form>
                 </div>
             </div>
-            <div class="six wide column">
+            <div class="eight wide column">
                 <div class="ui segment" style="height: 100px;">
                     <form class="ui form">
                         <input type="text" id="locationSearchText" size="20" placeholder="Warszawa, Polska">
@@ -63,25 +63,32 @@
         <div class="ui stackable grid">
             <div class="four wide column">
                 <div class="ui segment" style="height: 500px;">
-                    <form class="ui form">
+                    <form method="post" class="ui form">
                         Radius = <span id="radiusDisplay">1000</span><br>
-                        <input type="range" id="radiusRange" min="10" max="2000" value="1000" /><br>
+                        <input type="range" id="radiusRange" min="10" max="2000" value="1000" style="width: 100%;"/><br>
                         Point count = <span id="pointCount">0</span><br>
-                        <input type="button" id="clearButton" value="Clear all" class="ui button"/><br><br>
+                        <input type="button" id="clearMarkers" value="Clear all" class="ui button"/><br><br>
                         <input type="text" id="newProfileName">
                         <input type="button" id="newProfileSave" value="Save Profile" class="ui button"/><br><br>
                         <select id="loadProfileName" size=0 /><br>
                         <input type="button" id="loadProfile" value="Load Profile" class="ui button"/><br><br>
-                        Double-click on the map to create markers.<br>
-                        You can drag the created markers to new locations.<br>
-                        Change the closing radius using the slider.<br>
-                        The closing polygon(s) will change after each operation.
+                        <input type="button" id="deleteProfile" value="Delete Profile" class="ui button"/>
                     </form>
                 </div>
             </div>
             <div class="eight wide column">
-                <div class="ui segment" style="width: 486px; height: 500px;">
-                    <div id="map" style="width: 486px; height: 500px; float:right;"></div>
+                <div class="ui segment" style="width: 500px; height: 500px;">
+                    <div id="map" style="width: 500px; height: 500px; float:right;"></div>
+                </div>
+            </div>
+            <div class="four wide column">
+                <div class="ui segment" style="height: 500px;">
+                    Double-click on the map to create markers.<br>
+                    You can drag the created markers to new locations.<br>
+                    Change the closing radius using the slider.<br>
+                    The closing polygon(s) will change after each operation.<br>
+                    You can save a set of markers as a profile under your account.<br>
+                    Choose among the available profiles to recall a set of markers.
                 </div>
             </div>
         </div>
@@ -156,8 +163,7 @@
         };
         const radiusRange = document.getElementById("radiusRange");
         radiusRange.addEventListener("input", updatePolygons);
-        const clearButton = document.getElementById("clearButton");
-        clearButton.addEventListener("click", function () {
+        document.getElementById("clearMarkers").addEventListener("click", function () {
             for (let k in markers) {
                 map.removeLayer(markers[k]);
             }
@@ -224,6 +230,10 @@
         var polygons = [];
         const radiusDisplay = document.getElementById("radiusDisplay");
         function updatePolygons() {
+            if(Object.keys(markers).length==0) {
+                for (p of polygons) map.removeLayer(p);
+                return;
+            }
             var mm = [];
             for (var key in markers) {
                 mm.push(markerCoords(markers[key]));
@@ -234,32 +244,31 @@
             fetch("/change_geo/?radius=" + radiusRange.value.toString() + "&markers=" + t, {
                 method: 'GET',
                 headers: {
-                    'X-CSRFToken': csrftoken,
                     'X-Requested-With': 'XMLHttpRequest',
                     'Accept': 'application/json'
                 }
             })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        // Update point count if returned in response
-                        if (data.radius !== undefined) {
-                            radiusDisplay.textContent = data.radius;
-                        }
-                        if (data.contours !== undefined) {
-                            //markersDebug.textContent = data.contours;
-                            for (p of polygons) {
-                                map.removeLayer(p);
-                            }
-                            polygons = [];
-                            for (const c of JSON.parse(data.contours)) {
-                                polygons.push(L.polygon(c).addTo(map));
-                            }
-                        }
-
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    // Update point count if returned in response
+                    if (data.radius !== undefined) {
+                        radiusDisplay.textContent = data.radius;
                     }
-                })
-                .catch(error => console.error('Error:', error));
+                    if (data.contours !== undefined) {
+                        //markersDebug.textContent = data.contours;
+                        for (p of polygons) {
+                            map.removeLayer(p);
+                        }
+                        polygons = [];
+                        for (const c of JSON.parse(data.contours)) {
+                            polygons.push(L.polygon(c).addTo(map));
+                        }
+                    }
+
+                }
+            })
+            .catch(error => console.error('Error:', error));
         }
 
         // Profile interaction
@@ -269,10 +278,13 @@
                 event.preventDefault();
             }
         });
-        const saveProfileButton = document.getElementById("newProfileSave");
-        saveProfileButton.addEventListener("click", function () {
-            const profileName = newProfileName.value;
-            if (profileName.trim() === "") {
+        document.getElementById("newProfileSave").addEventListener("click", function () {
+            const profileName = newProfileName.value.trim();
+            if (Object.keys(markers).length==0) {
+                alert("Please create at least one marker to save a profile.");
+                return;
+            }
+            if (profileName === "") {
                 alert("Please enter a profile name.");
                 return;
             }
@@ -280,6 +292,7 @@
             fetch("/accounts/save_profile/", {
                 method: 'POST',
                 headers: {
+                    'X-CSRFToken': csrftoken,
                     'X-Requested-With': 'XMLHttpRequest',
                     'Content-Type': 'application/json',
                 },
@@ -288,16 +301,16 @@
                     markers: sm
                 })
             })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        alert("Profile saved successfully!");
-                        fetchAndPopulateProfiles();
-                    } else {
-                        alert("Error saving profile.");
-                    }
-                })
-                .catch(error => console.error('Error:', error));
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    alert("Profile \""+profileName+`\" for user {{ request.user }} saved successfully!`);
+                    fetchAndPopulateProfiles();
+                } else {
+                    alert("Error saving profile.");
+                }
+            })
+            .catch(error => console.error('Error:', error));
         });
         function fetchAndPopulateProfiles() {
             fetch("/accounts/load_profiles/", {
@@ -307,18 +320,18 @@
                     'Accept': 'application/json',
                 },
             })
-                .then(response => response.json())
-                .then(data => {
-                    const loadProfileName = document.getElementById("loadProfileName");
-                    loadProfileName.innerHTML = "";
-                    data.profiles.forEach(profile => {
-                        const option = document.createElement("option");
-                        option.value = profile.id;
-                        option.textContent = profile.name;
-                        loadProfileName.appendChild(option);
-                    });
-                })
-                .catch(error => console.error('Error fetching profiles:', error));
+            .then(response => response.json())
+            .then(data => {
+                const loadProfileName = document.getElementById("loadProfileName");
+                loadProfileName.innerHTML = "";
+                data.profiles.forEach(profile => {
+                    const option = document.createElement("option");
+                    option.value = profile.id;
+                    option.textContent = profile.name;
+                    loadProfileName.appendChild(option);
+                });
+            })
+            .catch(error => console.error('Error fetching profiles:', error));
         };
         document.getElementById("loadProfile").addEventListener("click", function () {
             const selectedProfileId = document.getElementById("loadProfileName").value;
@@ -330,17 +343,48 @@
                         'Accept': 'application/json',
                     },
                 })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.profile) {
-                            clearAllMarkers();
-                            loadMarkers(data.profile.markers);
-                            updatePolygons();
-                        } else {
-                            alert("Error loading profile.");
+                .then(response => response.json())
+                .then(data => {
+                    if (data.profile) {
+                        clearAllMarkers();
+                        loadMarkers(data.profile.markers);
+                        updatePolygons();
+                        if(Object.keys(markers).length>0) {
+                            var lats = [];
+                            var lons = [];
+                            for(let key in markers) {
+                                var ll = markers[key].getLatLng();
+                                lats.push(ll.lat);
+                                lons.push(ll.lng);
+                            }
+                            var mx = Math.min(...lons);
+                            var Mx = Math.max(...lons);
+                            var my = Math.min(...lats);
+                            var My = Math.max(...lats);
+                            console.log([mx,Mx,my,My]);
+                            map.setView([(my+My)/2,(mx+Mx)/2], 13);
                         }
-                    })
-                    .catch(error => console.error('Error loading profile:', error));
+                    } else {
+                        alert("Error loading profile.");
+                    }
+                })
+                .catch(error => console.error('Error loading profile:', error));
+            }
+        });
+        document.getElementById("deleteProfile").addEventListener("click", function () {
+            const selectedProfileId = document.getElementById("loadProfileName").value;
+            if (selectedProfileId) {
+                fetch(`/accounts/delete_profile/${selectedProfileId}/`, {
+                    method: 'DELETE',
+                    headers: {
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrftoken
+                    },
+                })
+                .then(response => {
+                    fetchAndPopulateProfiles();
+                });
             }
         });
         document.addEventListener("DOMContentLoaded", fetchAndPopulateProfiles);
